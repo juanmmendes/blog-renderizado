@@ -1,0 +1,572 @@
+---
+title: "Blog Individual ( Juan Mendes )"
+---
+
+::: {.hero-card}
+## Projeto de Sistemas de Informacao -- Atividades Individuais
+- Serie historica da cotacao do dolar com Plotly
+- Monitoramento em tempo real de frota utilizando Folium e Olho Vivo
+- Regressao linear matricial conectando anos de estudo e salario
+:::
+
+## Atividade 1 -- Cotacao do dolar por periodo
+
+::: {.activity-meta}
+**Objetivo:** transformar o parametro `MMYYYY` em datas validas e consumir a API PTAX do Banco Central.  
+**Entrada:** `052014` (maio/2014).  
+**Ferramentas:** `requests`, `pandas`, `plotly.express`.
+:::
+
+::: {.callout-note appearance="minimal"}
+**API consultada:** [Cotacao do Dolar por Periodo -- PTAX/BCB](https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/swagger-ui3#/CotacaoDolarPeriodo).
+:::
+
+```{python}
+#| label: atividade-1-prep
+#| echo: true
+import calendar
+from datetime import datetime, timedelta
+import requests
+import pandas as pd
+import plotly.express as px
+import time
+from requests.exceptions import RequestException
+
+
+NOMES_MESES = {
+    1: "Janeiro",
+    2: "Fevereiro",
+    3: "Marco",
+    4: "Abril",
+    5: "Maio",
+    6: "Junho",
+    7: "Julho",
+    8: "Agosto",
+    9: "Setembro",
+    10: "Outubro",
+    11: "Novembro",
+    12: "Dezembro",
+}
+
+
+def request_with_retry(
+    method: str,
+    url: str,
+    *,
+    session: requests.Session | None = None,
+    max_attempts: int = 3,
+    backoff_seconds: int = 2,
+    **kwargs,
+) -> requests.Response | None:
+    """Executa requisições HTTP com tentativas extras em caso de falha transitória."""
+    for attempt in range(max_attempts):
+        try:
+            requester = session.request if session else requests.request
+            response = requester(method, url, **kwargs)
+            response.raise_for_status()
+            return response
+        except RequestException as exc:
+            if attempt == max_attempts - 1:
+                print(f"Aviso: falha ao acessar {url} ({exc}).")
+                return None
+            espera = backoff_seconds * (attempt + 1)
+            print(
+                f"Aviso: tentativa {attempt + 1} falhou ({exc}). "
+                f"Nova tentativa em {espera} s."
+            )
+            time.sleep(espera)
+
+
+def fetch_dollar_series(periodo: str) -> pd.DataFrame:
+    """Busca a serie PTAX (cotacao de compra e venda) para o mes informado."""
+    data_inicial = datetime.strptime(periodo, "%m%Y")
+    data_final = data_inicial.replace(
+        day=calendar.monthrange(data_inicial.year, data_inicial.month)[1]
+    )
+    consulta_inicial = data_inicial - timedelta(days=7)
+    base_url = (
+        "https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/"
+        "CotacaoDolarPeriodo(dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)"
+    )
+    query = (
+        f"{base_url}?@dataInicial='{consulta_inicial.strftime('%m-%d-%Y')}'"
+        f"&@dataFinalCotacao='{data_final.strftime('%m-%d-%Y')}'"
+        "&$top=1000&$format=json"
+    )
+    response = request_with_retry("GET", query, timeout=15)
+    if response is None:
+        return pd.DataFrame(columns=["data", "cotacaoCompra", "cotacaoVenda"])
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        print(f"Aviso: resposta invalida da API PTAX ({exc}).")
+        return pd.DataFrame(columns=["data", "cotacaoCompra", "cotacaoVenda"])
+    valores = payload.get("value", [])
+    if not valores:
+        print("Aviso: a API PTAX nao retornou dados para o periodo solicitado.")
+        return pd.DataFrame(columns=["data", "cotacaoCompra", "cotacaoVenda"])
+    df = pd.DataFrame(valores)
+    df["data"] = pd.to_datetime(df["dataHoraCotacao"])
+    df = df.sort_values("data")
+    return df[["data", "cotacaoCompra", "cotacaoVenda"]]
+
+
+periodo_escolhido = "052014"
+mes_referencia = datetime.strptime(periodo_escolhido, "%m%Y")
+inicio_mes = mes_referencia.replace(day=1)
+fim_mes = mes_referencia.replace(
+    day=calendar.monthrange(mes_referencia.year, mes_referencia.month)[1]
+)
+inicio_mes_ts = pd.Timestamp(inicio_mes)
+fim_mes_ts = pd.Timestamp(fim_mes)
+rotulo_mes = f"{NOMES_MESES[mes_referencia.month]}/{mes_referencia.year}"
+cotacao_df = fetch_dollar_series(periodo_escolhido)
+
+if cotacao_df.empty:
+    fig_cotacao = px.line(
+        title=f"Cotacao de venda do dolar (PTAX) -- {rotulo_mes} (dados indisponiveis)"
+    )
+    cotacao_total = 0
+    maior_cotacao = None
+    data_maior = None
+    menor_cotacao = None
+    data_menor = None
+else:
+    cotacao_df["data"] = cotacao_df["data"].dt.normalize()
+    cotacao_df = (
+        cotacao_df.sort_values("data")
+        .groupby("data", as_index=False)
+        .agg({"cotacaoCompra": "last", "cotacaoVenda": "last"})
+    )
+    dados_limpos = cotacao_df[cotacao_df["data"] <= fim_mes_ts]
+    cotacao_mes = dados_limpos[dados_limpos["data"] >= inicio_mes_ts]
+
+    if cotacao_mes.empty:
+        cotacao_df = pd.DataFrame(columns=["data", "cotacaoCompra", "cotacaoVenda"])
+        fig_cotacao = px.line(
+            title=f"Cotacao de venda do dolar (PTAX) -- {rotulo_mes} (dados indisponiveis)"
+        )
+        cotacao_total = 0
+        maior_cotacao = None
+        data_maior = None
+        menor_cotacao = None
+        data_menor = None
+    else:
+        ultimo_dia_util = dados_limpos[dados_limpos["data"] < inicio_mes_ts].tail(1)
+        cotacao_completa = pd.concat(
+            [ultimo_dia_util, cotacao_mes],
+            ignore_index=True,
+        )
+        calendario_para_ffill = pd.date_range(
+            start=min(cotacao_completa["data"].min(), inicio_mes_ts),
+            end=fim_mes_ts,
+            freq="D",
+        )
+        cotacao_df = (
+            cotacao_completa.set_index("data")
+            .reindex(calendario_para_ffill)
+            .ffill()
+            .reset_index()
+            .rename(columns={"index": "data"})
+        )
+        cotacao_df = cotacao_df[cotacao_df["data"] >= inicio_mes_ts].reset_index(
+            drop=True
+        )
+
+        fig_cotacao = px.line(
+            cotacao_df,
+            x="data",
+            y="cotacaoVenda",
+            markers=True,
+            title=f"Cotacao de venda do dolar (PTAX) -- {rotulo_mes}",
+            labels={"data": "Data", "cotacaoVenda": "Valor (R$)"},
+        )
+        fig_cotacao.update_layout(yaxis_tickprefix="R$ ")
+        cotacao_total = len(cotacao_df)
+        maior_cotacao = cotacao_df["cotacaoVenda"].max()
+        data_maior = cotacao_df.loc[cotacao_df["cotacaoVenda"].idxmax(), "data"].date()
+        menor_cotacao = cotacao_df["cotacaoVenda"].min()
+        data_menor = cotacao_df.loc[cotacao_df["cotacaoVenda"].idxmin(), "data"].date()
+```
+
+::: {.panel-tabset}
+### Previa dos dados
+```{python}
+cotacao_df.head()
+```
+
+### Grafico interativo
+```{python}
+fig_cotacao
+```
+:::
+
+::: {.callout-tip appearance="minimal"}
+```{python}
+#| echo: false
+if cotacao_total:
+    print(f"- Observacoes coletadas: {cotacao_total}")
+    print(f"- Maior cotacao de venda: R$ {maior_cotacao:.4f} ({data_maior})")
+    print(f"- Menor cotacao de venda: R$ {menor_cotacao:.4f} ({data_menor})")
+else:
+    print(
+        "- Nenhum registro foi retornado pela API PTAX neste momento. "
+        "Tente renderizar novamente em alguns instantes."
+    )
+```
+:::
+
+## Atividade 2 -- Monitoramento de frota de onibus
+
+::: {.activity-meta}
+**Objetivo:** exibir paradas e veiculos em tempo real na mesma visualizacao.  
+**Linha monitorada:** `8300-10` -- Terminal Lapa <-> Terminal Pirituba.  
+**Ferramentas:** `requests`, `pandas`, `folium`.
+:::
+
+::: {.callout-note appearance="minimal"}
+**Fonte dos dados:** [API Olho Vivo -- SPTrans](http://www.sptrans.com.br/desenvolvedores/).
+:::
+
+::: {.callout-tip appearance="minimal"}
+**Registro na planilha da disciplina:** ID `juanmendes.si` (coluna A) e linha `8300-10` (coluna B) ja lancados na planilha compartilhada da atividade. O preenchimento mantem a exclusividade da linha escolhida.
+:::
+
+```{python}
+#| label: atividade-2-prep
+#| echo: true
+import os
+from typing import Tuple
+
+import pandas as pd
+import requests
+import folium
+
+
+TOKEN_PADRAO = "2627f5b82681d40852fc6d0be89d543be4a1c01b71084c0fa53e5ee52889c0f4"
+SPTRANS_TOKEN = os.environ.get("SPTRANS_TOKEN", TOKEN_PADRAO)
+NUMERO_LINHA = "8300-10"  # Term. Lapa <-> Term. Pirituba
+
+
+def buscar_linhas(sessao: requests.Session, termo: str) -> pd.DataFrame:
+    """Retorna os codigos (cl) cadastrados para uma linha informada."""
+    if sessao is None:
+        return pd.DataFrame(columns=["cl", "sl", "tp", "ts"])
+    url = f"http://api.olhovivo.sptrans.com.br/v2.1/Linha/Buscar?termosBusca={termo}"
+    resposta = request_with_retry("GET", url, session=sessao, timeout=10)
+    if resposta is None:
+        print("Aviso: nao foi possivel localizar a linha na API Olho Vivo.")
+        return pd.DataFrame(columns=["cl", "sl", "tp", "ts"])
+    try:
+        dados = resposta.json()
+    except ValueError as exc:
+        print(f"Aviso: resposta invalida ao buscar dados da linha ({exc}).")
+        return pd.DataFrame(columns=["cl", "sl", "tp", "ts"])
+    df = pd.DataFrame(dados)
+    if df.empty:
+        print("Aviso: a API nao retornou codigos para a linha informada.")
+    return df
+
+
+def autenticar(token: str) -> requests.Session:
+    """Cria sessao autenticada na API Olho Vivo."""
+    sessao = requests.Session()
+    resposta = request_with_retry(
+        "POST",
+        f"http://api.olhovivo.sptrans.com.br/v2.1/Login/Autenticar?token={token}",
+        session=sessao,
+        timeout=10,
+    )
+    if resposta is None:
+        print("Aviso: autenticacao na API Olho Vivo falhou apos varias tentativas.")
+        return None
+    if resposta.text.strip().lower() != "true":
+        print("Aviso: token informado nao foi aceito pela API Olho Vivo.")
+        return None
+    return sessao
+
+
+def obter_paradas(sessao: requests.Session, codigo_linha: int) -> pd.DataFrame:
+    """Retorna as paradas cadastradas para a linha informada."""
+    if sessao is None:
+        return pd.DataFrame(columns=["np", "ed", "py", "px"])
+    url = (
+        "http://api.olhovivo.sptrans.com.br/v2.1/"
+        f"Parada/BuscarParadasPorLinha?codigoLinha={codigo_linha}"
+    )
+    resposta = request_with_retry("GET", url, session=sessao, timeout=10)
+    if resposta is None:
+        print("Aviso: nao foi possivel obter as paradas da linha.")
+        return pd.DataFrame(columns=["np", "ed", "py", "px"])
+    try:
+        dados = resposta.json()
+    except ValueError as exc:
+        print(f"Aviso: resposta invalida ao buscar paradas ({exc}).")
+        return pd.DataFrame(columns=["np", "ed", "py", "px"])
+    df = pd.DataFrame(dados)
+    if df.empty:
+        return pd.DataFrame(columns=["np", "ed", "py", "px"])
+    return df
+
+
+def obter_posicoes(sessao: requests.Session, codigo_linha: int) -> pd.DataFrame:
+    """Obtem as posicoes em tempo real dos veiculos da linha."""
+    if sessao is None:
+        return pd.DataFrame(columns=["p", "ta", "py", "px"])
+    url = (
+        "http://api.olhovivo.sptrans.com.br/v2.1/"
+        f"Posicao/Linha?codigoLinha={codigo_linha}"
+    )
+    resposta = request_with_retry("GET", url, session=sessao, timeout=10)
+    if resposta is None:
+        print("Aviso: nao foi possivel obter a posicao em tempo real da linha.")
+        return pd.DataFrame(columns=["p", "ta", "py", "px"])
+    try:
+        dados = resposta.json()
+    except ValueError as exc:
+        print(f"Aviso: resposta invalida ao buscar posicoes ({exc}).")
+        return pd.DataFrame(columns=["p", "ta", "py", "px"])
+    df = pd.DataFrame(dados.get("vs", []))
+    if df.empty:
+        return pd.DataFrame(columns=["p", "ta", "py", "px"])
+    return df
+
+
+sessao = autenticar(SPTRANS_TOKEN)
+linhas_df = buscar_linhas(sessao, NUMERO_LINHA)
+codigos_linha = (
+    linhas_df["cl"].dropna().astype(int).unique().tolist()
+    if not linhas_df.empty
+    else []
+)
+
+paradas_df = pd.DataFrame(columns=["np", "ed", "py", "px"])
+if codigos_linha:
+    paradas_lista = [obter_paradas(sessao, codigo) for codigo in codigos_linha]
+    paradas_df = (
+        pd.concat(paradas_lista, ignore_index=True)
+        if paradas_lista
+        else paradas_df
+    )
+    if not paradas_df.empty:
+        paradas_df = paradas_df.drop_duplicates(subset=["np", "ed"]).reset_index(
+            drop=True
+        )
+else:
+    print(
+        "Aviso: nenhum codigo de linha foi encontrado. "
+        "Verifique se o identificador informado esta correto."
+    )
+
+posicoes_df = pd.DataFrame(columns=["p", "ta", "py", "px", "sentido", "rota"])
+if not linhas_df.empty:
+    posicoes_frames = []
+    for _, linha in linhas_df.iterrows():
+        try:
+            codigo_linha = int(linha.get("cl"))
+        except (TypeError, ValueError):
+            continue
+        posicoes = obter_posicoes(sessao, codigo_linha)
+        if posicoes.empty:
+            continue
+        sentido = "Ida" if int(linha.get("sl", 0)) == 1 else "Volta"
+        origem = (linha.get("tp") or "").strip()
+        destino = (linha.get("ts") or "").strip()
+        rota = f"{origem} -> {destino}" if origem and destino else sentido
+        posicoes = posicoes.assign(sentido=sentido, rota=rota)
+        posicoes_frames.append(posicoes)
+    if posicoes_frames:
+        posicoes_df = pd.concat(posicoes_frames, ignore_index=True)
+        if "ta" in posicoes_df.columns:
+            posicoes_df = posicoes_df.sort_values("ta", ascending=False).reset_index(
+                drop=True
+            )
+
+paradas_resumo = paradas_df[["np", "ed"]].rename(
+    columns={"np": "Parada", "ed": "Endereco"}
+)
+
+colunas_resumo = [col for col in ["p", "sentido", "rota", "ta"] if col in posicoes_df]
+if colunas_resumo:
+    posicoes_resumo = posicoes_df[colunas_resumo].rename(
+        columns={
+            "p": "Prefixo",
+            "sentido": "Sentido",
+            "rota": "Rota",
+            "ta": "Atualizacao (UTC)",
+        }
+    )
+else:
+    posicoes_resumo = pd.DataFrame(
+        columns=["Prefixo", "Sentido", "Rota", "Atualizacao (UTC)"]
+    )
+
+
+def obter_centro_mapa(
+    paradas: pd.DataFrame, posicoes: pd.DataFrame
+) -> Tuple[float, float]:
+    """Retorna um ponto central adequado para iniciar o mapa."""
+    if not posicoes.empty:
+        return float(posicoes.iloc[0]["py"]), float(posicoes.iloc[0]["px"])
+    if not paradas.empty:
+        return float(paradas.iloc[0]["py"]), float(paradas.iloc[0]["px"])
+    # fallback aproximado
+    return -23.5408, -46.7035
+
+
+latitude_centro, longitude_centro = obter_centro_mapa(paradas_df, posicoes_df)
+mapa = folium.Map(location=[latitude_centro, longitude_centro], zoom_start=13)
+camada_paradas = folium.FeatureGroup(name="Paradas").add_to(mapa)
+camada_posicoes = folium.FeatureGroup(name="Veiculos em tempo real").add_to(mapa)
+
+for _, parada in paradas_df.iterrows():
+    folium.Marker(
+        location=[parada["py"], parada["px"]],
+        popup=f"{parada['np']}<br>{parada['ed']}",
+        icon=folium.Icon(color="blue", icon="info-sign"),
+    ).add_to(camada_paradas)
+
+for _, veiculo in posicoes_df.iterrows():
+    latitude = veiculo.get("py")
+    longitude = veiculo.get("px")
+    if pd.isna(latitude) or pd.isna(longitude):
+        continue
+    popup_linhas = [
+        f"Prefixo {veiculo.get('p', 'desconhecido')}",
+        f"Sentido: {veiculo.get('sentido', 'nao informado')}",
+    ]
+    rota_info = veiculo.get("rota", "")
+    if isinstance(rota_info, str) and rota_info:
+        popup_linhas.append(f"Rota: {rota_info}")
+    ta_valor = veiculo.get("ta")
+    if ta_valor:
+        popup_linhas.append(f"Atualizado em {ta_valor}")
+    popup_texto = "<br>".join(popup_linhas)
+    folium.Marker(
+        location=[float(latitude), float(longitude)],
+        popup=popup_texto,
+        icon=folium.Icon(color="red", icon="bus", prefix="fa"),
+    ).add_to(camada_posicoes)
+
+folium.LayerControl().add_to(mapa)
+
+total_paradas = len(paradas_df)
+veiculos_em_operacao = len(posicoes_df)
+ultima_atualizacao = (
+    posicoes_df["ta"].max() if not posicoes_df.empty else "sem dados no momento"
+)
+```
+
+::: {.panel-tabset}
+### Paradas (amostra)
+```{python}
+paradas_resumo.head(10)
+```
+
+### Veiculos em tempo real
+```{python}
+posicoes_resumo
+```
+
+### Mapa interativo
+```{python}
+mapa
+```
+:::
+
+::: {.callout-tip appearance="minimal"}
+```{python}
+#| echo: false
+print(f"- Paradas cadastradas: {total_paradas}")
+print(f"- Veiculos localizados agora: {veiculos_em_operacao}")
+print(f"- Ultima atualizacao reportada: {ultima_atualizacao}")
+```
+:::
+
+## Atividade 3 -- Regressao linear por matriz
+
+::: {.activity-meta}
+**Objetivo:** estimar `y = a + bx` usando a forma matricial `(XTX)1XTy`.  
+**Dados:** `dados_x.txt` (anos de estudo) e `dados_y.txt` (salario mensal).  
+**Ferramentas:** `numpy`, `pandas`, `plotly.express`.
+:::
+
+```{python}
+#| label: atividade-3-prep
+#| echo: true
+import numpy as np
+import pandas as pd
+import plotly.express as px
+
+x = np.loadtxt("dados_x.txt", dtype=float)
+y = np.loadtxt("dados_y.txt", dtype=float)
+
+X = np.column_stack([np.ones_like(x), x])
+beta = np.linalg.inv(X.T @ X) @ X.T @ y
+a, b = beta
+y_estimado = a + b * x
+
+residuos = y - y_estimado
+ss_res = np.sum(residuos**2)
+ss_tot = np.sum((y - y.mean()) ** 2)
+r2 = 1 - ss_res / ss_tot
+
+resultado_df = pd.DataFrame(
+    {
+        "Anos de estudo": x,
+        "Salario observado (R$)": y,
+        "Salario estimado (R$)": y_estimado,
+    }
+).round(2)
+
+ordem = np.argsort(x)
+# Grafico segue o template solicitado usando plotly.express.scatter
+fig_regressao = px.scatter(
+    x=x,
+    y=y,
+    title="Relacao entre anos de estudo e salario (regressao linear)",
+    labels={"x": "Anos de estudo", "y": "Salario observado (R$)"},
+)
+fig_regressao.update_traces(
+    name="Observado",
+    marker=dict(color="#1f77b4"),
+    showlegend=True,
+)
+fig_regressao.add_scatter(
+    x=x[ordem],
+    y=y_estimado[ordem],
+    mode="lines",
+    name="Reta estimada",
+    line=dict(color="#d62728", width=3),
+)
+fig_regressao.update_layout(
+    legend_title_text="Serie",
+    xaxis_title="Anos de estudo",
+    yaxis_title="Salario (R$)",
+    yaxis_tickprefix="R$ ",
+)
+```
+
+::: {.panel-tabset}
+### Tabela comparativa
+```{python}
+resultado_df
+```
+
+### Reta ajustada
+```{python}
+fig_regressao
+```
+:::
+
+::: {.callout-note appearance="minimal"}
+```{python}
+#| echo: false
+print(f"**Equacao estimada:** salario = {a:.2f} + {b:.2f} x anos de estudo")
+print(f"**Coeficiente de determinacao (R2):** {r2:.4f}")
+```
+:::
+
+::: {.closing-card}
+As tres atividades demonstram a coleta de dados em fontes externas, o tratamento por meio de `pandas` e a visualizacao interativa com Plotly e Folium. O material esta pronto para ser apresentado como blog do curso de Sistemas de Informacao e pode ser expandido com novas rotinas conforme as proximas etapas da disciplina.
+:::

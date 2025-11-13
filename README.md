@@ -1,21 +1,34 @@
-# Blog Individual (versão renderizada)
+# Blog Individual – Build Automático
 
-Este repositório guarda a saída **já renderizada** do projeto Quarto localizado em `juanmmendes/blog-individual`. Ele é usado como origem para o GitHub Pages.
+Este repositório agora armazena **tanto** o projeto Quarto (arquivos `.qmd`, dados, CSS) quanto a pasta `docs/` com a versão renderizada publicada via GitHub Pages.
 
-## Atualizações automáticas
+## Como funciona
 
-- Um workflow no repositório de origem renderiza o blog a cada 15 minutos (ou quando acionado manualmente) e publica os arquivos aqui via commit.
-- Os arquivos publicados são exatamente os gerados em `_site/` (index.html, about.html, search.json, `site_libs/`, etc.).
+1. O workflow em `.github/workflows/render-and-deploy.yml` roda a cada 15 minutos (ou sob demanda).
+2. Ele instala as dependências listadas em `requirements.txt`, executa `quarto render index.qmd` e atualiza `docs/`.
+3. O GitHub Pages deve estar configurado para servir `main / docs`, exibindo o site em `https://juanmmendes.github.io/blog-renderizado/`.
 
 ## Estrutura
 
 ```
 .
-├── index.html
-├── about.html
-├── search.json
+├── about.qmd
+├── index.qmd
+├── dados_x.txt / dados_y.txt
 ├── styles.css
-└── site_libs/
+├── _quarto.yml        # define o output-dir como docs/
+├── requirements.txt   # dependências Python usadas nos notebooks
+├── docs/              # HTML/CSS já renderizados (output do Quarto)
+└── .github/workflows/render-and-deploy.yml
 ```
 
-Para visualizar localmente, abra `index.html` em um navegador.
+Para atualizar manualmente:
+
+```bash
+quarto render index.qmd
+git add docs/
+git commit -m "Atualiza build"
+git push origin main
+```
+
+Mas, em geral, o workflow cuidará de tudo automaticamente.
