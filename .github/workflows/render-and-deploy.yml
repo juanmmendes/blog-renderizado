@@ -1,0 +1,69 @@
+name: Render and Deploy Blog
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_REPO: juanmmendes/studyboard
+      SOURCE_PATH: blog-individual
+      TARGET_BRANCH: main
+      SPTRANS_TOKEN: ${{ secrets.SPTRANS_TOKEN }}
+    steps:
+      - name: Checkout blog-renderizado
+        uses: actions/checkout@v4
+
+      - name: Clona projeto fonte
+        env:
+          SOURCE_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
+        run: |
+          if [ -n "$SOURCE_TOKEN" ]; then
+            git clone https://$SOURCE_TOKEN@github.com/$SOURCE_REPO.git source
+          else
+            git clone https://github.com/$SOURCE_REPO.git source
+          fi
+
+      - name: Instala Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instala dependencias
+        run: pip install -r source/$SOURCE_PATH/requirements.txt
+
+      - name: Instala Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Renderiza projeto Quarto
+        working-directory: source/${SOURCE_PATH}
+        run: quarto render index.qmd
+
+      - name: Sincroniza build estatico
+        run: |
+          rsync -av --delete \
+            --exclude ".git/" \
+            --exclude ".github/" \
+            --exclude "README.md" \
+            source/${SOURCE_PATH}/_site/ .
+
+      - name: Configura git para o bot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Publica atualizacao
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git status --porcelain | grep -q .
+          then
+            git add .
+            git commit -m "Atualiza build estatico (run ${GITHUB_RUN_ID})"
+            git push origin ${TARGET_BRANCH}
+          else
+            echo "Sem alteracoes para publicar."
+          fi
