@@ -1,6 +1,7 @@
 numpy
 pandas
 plotly
+plotnine
 requests
 folium
 jupyter

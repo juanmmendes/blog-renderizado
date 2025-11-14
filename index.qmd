@@ -486,9 +486,9 @@ print(f"- Ultima atualizacao reportada: {ultima_atualizacao}")
 ## Atividade 3 -- Regressao linear por matriz
 
 ::: {.activity-meta}
-**Objetivo:** estimar `y = a + bx` usando a forma matricial `(XTX)1XTy`.  
+**Objetivo:** estimar `y = a + bx` usando a forma matricial `(X^TX)^{-1}X^Ty` e ilustrar a reta encontrada.  
 **Dados:** `dados_x.txt` (anos de estudo) e `dados_y.txt` (salario mensal).  
-**Ferramentas:** `numpy`, `pandas`, `plotly.express`.
+**Ferramentas:** `numpy`, `pandas`, `plotnine`.
 :::
 
 ```{python}
@@ -496,7 +496,15 @@ print(f"- Ultima atualizacao reportada: {ultima_atualizacao}")
 #| echo: true
 import numpy as np
 import pandas as pd
-import plotly.express as px
+from plotnine import (
+    ggplot,
+    aes,
+    geom_point,
+    geom_abline,
+    theme,
+    element_text,
+    labs,
+)
 
 x = np.loadtxt("dados_x.txt", dtype=float)
 y = np.loadtxt("dados_y.txt", dtype=float)
@@ -511,40 +519,36 @@ ss_res = np.sum(residuos**2)
 ss_tot = np.sum((y - y.mean()) ** 2)
 r2 = 1 - ss_res / ss_tot
 
-resultado_df = pd.DataFrame(
-    {
-        "Anos de estudo": x,
-        "Salario observado (R$)": y,
-        "Salario estimado (R$)": y_estimado,
-    }
-).round(2)
+resultado_df = (
+    pd.DataFrame(
+        {
+            "Anos de estudo": x,
+            "Salario observado (R$)": y,
+            "Salario estimado (R$)": y_estimado,
+        }
+    )
+    .sort_values("Anos de estudo")
+    .reset_index(drop=True)
+    .round(2)
+)
 
-ordem = np.argsort(x)
-# Grafico segue o template solicitado usando plotly.express.scatter
-fig_regressao = px.scatter(
-    x=x,
-    y=y,
-    title="Relacao entre anos de estudo e salario (regressao linear)",
-    labels={"x": "Anos de estudo", "y": "Salario observado (R$)"},
+df_plot = pd.DataFrame({"x": resultado_df["Anos de estudo"], "y": resultado_df["Salario observado (R$)"]})
+plot_regressao = (
+    ggplot(df_plot, aes("x", "y"))
+    + geom_point(color="#1f77b4", size=2.8)
+    + geom_abline(intercept=a, slope=b, color="#d62728", size=1.1)
+    + labs(
+        title="Relacao entre anos de estudo e salario",
+        x="Anos de estudo",
+        y="Salario (R$)",
+    )
+    + theme(
+        plot_title=element_text(size=12, weight="bold"),
+        axis_title=element_text(size=10),
+    )
 )
-fig_regressao.update_traces(
-    name="Observado",
-    marker=dict(color="#1f77b4"),
-    showlegend=True,
-)
-fig_regressao.add_scatter(
-    x=x[ordem],
-    y=y_estimado[ordem],
-    mode="lines",
-    name="Reta estimada",
-    line=dict(color="#d62728", width=3),
-)
-fig_regressao.update_layout(
-    legend_title_text="Serie",
-    xaxis_title="Anos de estudo",
-    yaxis_title="Salario (R$)",
-    yaxis_tickprefix="R$ ",
-)
+plot_regressao.save("grafico-atividade3.png", verbose=False, dpi=150)
+grafico_path = "grafico-atividade3.png"
 ```
 
 ::: {.panel-tabset}
@@ -553,9 +557,13 @@ fig_regressao.update_layout(
 resultado_df
 ```
 
-### Reta ajustada
+### Grafico com reta estimada
 ```{python}
-fig_regressao
+from pathlib import Path
+from IPython.display import Image, display
+
+display(Image(grafico_path))
+Path(grafico_path).unlink(missing_ok=True)
 ```
 :::
 
