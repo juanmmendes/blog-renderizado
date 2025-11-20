@@ -21,6 +21,10 @@ title: "Blog Individual ( Juan Mendes )"
 **API consultada:** [Cotacao do Dolar por Periodo -- PTAX/BCB](https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/swagger-ui3#/CotacaoDolarPeriodo).
 :::
 
+::: {.callout-tip appearance="minimal"}
+Neste post contamos como pegamos o parâmetro `MMYYYY`, expandimos para datas válidas e consultamos a API PTAX do Banco Central para obter as cotações. Depois mostramos como limpamos e ordenamos os registros para alimentar o gráfico Plotly, sempre com avisos amigáveis para o leitor entender o que acontece caso a API não responda.
+:::
+
 ```{python}
 #| label: atividade-1-prep
 #| echo: true
@@ -230,6 +234,10 @@ else:
 
 ::: {.callout-tip appearance="minimal"}
 **Registro na planilha da disciplina:** ID `juanmendes.si` (coluna A) e linha `8300-10` (coluna B) ja lancados na planilha compartilhada da atividade. O preenchimento mantem a exclusividade da linha escolhida.
+:::
+
+::: {.callout-tip appearance="minimal"}
+Agora veremos a rotina completa que autentica na API Olho Vivo, busca paradas e posições e monta o mapa com Folium, descrevendo o fluxo em linguagem amigável antes de apresentar cada trecho de código.
 :::
 
 ```{python}
@@ -488,23 +496,21 @@ print(f"- Ultima atualizacao reportada: {ultima_atualizacao}")
 ::: {.activity-meta}
 **Objetivo:** estimar `y = a + bx` usando a forma matricial `(X^TX)^{-1}X^Ty` e ilustrar a reta encontrada.  
 **Dados:** `dados_x.txt` (anos de estudo) e `dados_y.txt` (salario mensal).  
-**Ferramentas:** `numpy`, `pandas`, `plotnine`.
+**Ferramentas:** `numpy`, `pandas`, `plotly.graph_objects`.
 :::
+ 
+::: {.callout-tip appearance="minimal"}
+Neste post descrevemos passo a passo a montagem da regressão linear matricial, desde a leitura dos dados e cálculo matricial dos coeficientes até a comparação entre salários observados e estimados, mantendo o tom explicativo de um blog antes de mostrar o código.
+:::
+
+
 
 ```{python}
 #| label: atividade-3-prep
 #| echo: true
 import numpy as np
 import pandas as pd
-from plotnine import (
-    ggplot,
-    aes,
-    geom_point,
-    geom_abline,
-    theme,
-    element_text,
-    labs,
-)
+import plotly.graph_objects as go
 
 x = np.loadtxt("dados_x.txt", dtype=float)
 y = np.loadtxt("dados_y.txt", dtype=float)
@@ -532,23 +538,38 @@ resultado_df = (
     .round(2)
 )
 
-df_plot = pd.DataFrame({"x": resultado_df["Anos de estudo"], "y": resultado_df["Salario observado (R$)"]})
-plot_regressao = (
-    ggplot(df_plot, aes("x", "y"))
-    + geom_point(color="#1f77b4", size=2.8)
-    + geom_abline(intercept=a, slope=b, color="#d62728", size=1.1)
-    + labs(
-        title="Relacao entre anos de estudo e salario",
-        x="Anos de estudo",
-        y="Salario (R$)",
-    )
-    + theme(
-        plot_title=element_text(size=12, weight="bold"),
-        axis_title=element_text(size=10),
+df_plot = resultado_df[
+    ["Anos de estudo", "Salario observado (R$)", "Salario estimado (R$)"]
+].copy()
+fig_atividade3 = go.Figure()
+fig_atividade3.add_trace(
+    go.Scatter(
+        x=df_plot["Anos de estudo"],
+        y=df_plot["Salario observado (R$)"],
+        mode="markers",
+        marker=dict(color="#1f77b4", size=8),
+        hovertemplate="Anos de estudo: %{x}<br>Salário: R$ %{y:.2f}<extra></extra>",
+        name="Salário observado",
     )
 )
-plot_regressao.save("grafico-atividade3.png", verbose=False, dpi=150)
-grafico_path = "grafico-atividade3.png"
+fig_atividade3.add_trace(
+    go.Scatter(
+        x=df_plot["Anos de estudo"],
+        y=df_plot["Salario estimado (R$)"],
+        mode="lines",
+        line=dict(color="#d62728", width=3),
+        hoverinfo="skip",
+        name="Reta estimada",
+    )
+)
+_ = fig_atividade3.update_layout(
+    title="Relação entre anos de estudo e salário",
+    xaxis_title="Anos de estudo",
+    yaxis_title="Salário (R$)",
+    template="plotly_white",
+    hovermode="closest",
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+)
 ```
 
 ::: {.panel-tabset}
@@ -559,14 +580,9 @@ resultado_df
 
 ### Grafico com reta estimada
 ```{python}
-from pathlib import Path
-from IPython.display import Image, display
-
-display(Image(grafico_path))
-Path(grafico_path).unlink(missing_ok=True)
+fig_atividade3
 ```
 :::
-
 ::: {.callout-note appearance="minimal"}
 ```{python}
 #| echo: false
