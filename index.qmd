@@ -22,7 +22,11 @@ title: "Blog Individual ( Juan Mendes )"
 :::
 
 ::: {.callout-tip appearance="minimal"}
-Neste post contamos como pegamos o parâmetro `MMYYYY`, expandimos para datas válidas e consultamos a API PTAX do Banco Central para obter as cotações. Depois mostramos como limpamos e ordenamos os registros para alimentar o gráfico Plotly, sempre com avisos amigáveis para o leitor entender o que acontece caso a API não responda.
+**Visão geral:** O trecho consome a API PTAX do Banco Central para coletar as cotações de compra e venda do dólar em um mês especificado e transforma esses dados em um conjunto pronto para análise, visualização e resumo estatístico.
+
+**Preparação da consulta:** Define o dicionário com os nomes dos meses em português e dispara as requisições com `request_with_retry`, que repete a chamada até três vezes em caso de falhas temporárias. A função `fetch_dollar_series(periodo)` recebe o período no formato `mmYYYY`, amplia a janela de busca em até sete dias antes do início do mês e monta a URL da API PTAX correspondente.
+
+**Processamento e saída:** Converte a resposta em JSON, normaliza os dados para manter apenas data, cotação de compra e cotação de venda e trata os cenários em que não há registros retornados. Quando há dados, agrupa por dia, completa o calendário diário com forward fill e gera o gráfico Plotly da cotação de venda. Além disso, calcula indicadores como total de observações, maior e menor cotação e as datas correspondentes, resultando em um dataset diário completo, gráfico interativo e breve resumo estatístico.
 :::
 
 ```{python}
@@ -233,11 +237,15 @@ else:
 :::
 
 ::: {.callout-tip appearance="minimal"}
-**Registro na planilha da disciplina:** ID `juanmendes.si` (coluna A) e linha `8300-10` (coluna B) ja lancados na planilha compartilhada da atividade. O preenchimento mantem a exclusividade da linha escolhida.
+**Registro na planilha da disciplina:** O ID `juanmendes.si` (coluna A) e a linha `8300-10` (coluna B) já foram lançados na planilha compartilhada da atividade. Esse preenchimento preserva a exclusividade da linha escolhida e evita sobrescrever outros registros.
 :::
 
 ::: {.callout-tip appearance="minimal"}
-Agora veremos a rotina completa que autentica na API Olho Vivo, busca paradas e posições e monta o mapa com Folium, descrevendo o fluxo em linguagem amigável antes de apresentar cada trecho de código.
+**Conexão e dados:** O código utiliza o token da variável de ambiente `SPTRANS_TOKEN` (com fallback) e autentica na API Olho Vivo antes de buscar a linha `8300-10`. Após receber os códigos internos da linha, consulta as paradas e as posições em tempo real, organizando os dados em `linhas_df`, `paradas_df` e `posicoes_df` com as colunas principais.
+
+**Resumos tabulares:** Cria `paradas_resumo` e `posicoes_resumo` para exibição e trata a ausência de dados com mensagens de aviso e DataFrames vazios, garantindo que o dashboard apresente informações consistentes mesmo quando o retorno estiver incompleto.
+
+**Mapa e indicadores:** Calcula o ponto central com base nas posições mais recentes (ou em fallback), monta o mapa Folium com camadas separadas para paradas (marcadores azuis) e veículos (marcadores vermelhos e ícones de ônibus) e ativa o `LayerControl`. Ao final, determina `total_paradas`, `veiculos_em_operacao` e `ultima_atualizacao`, entregando um mapa interativo acompanhado de um painel numérico/tabular dos dados da linha.
 :::
 
 ```{python}
@@ -500,7 +508,9 @@ print(f"- Ultima atualizacao reportada: {ultima_atualizacao}")
 :::
  
 ::: {.callout-tip appearance="minimal"}
-Neste post descrevemos passo a passo a montagem da regressão linear matricial, desde a leitura dos dados e cálculo matricial dos coeficientes até a comparação entre salários observados e estimados, mantendo o tom explicativo de um blog antes de mostrar o código.
+**Leitura e ajuste:** O script lê os arquivos `dados_x.txt` e `dados_y.txt`, monta a matriz `X` com uma coluna de 1 (intercepto) e outra com os anos de estudo, e aplica a fórmula matricial dos mínimos quadrados `beta = (XᵀX)⁻¹ Xᵀ y` para obter os coeficientes `a` (intercepto) e `b` (inclinação). Em seguida, calcula os resíduos, `ss_res`, `ss_tot` e o coeficiente de determinação `r2` para quantificar quanto a reta explica a dispersão dos salários observados.
+
+**Resultados e visualização:** Agrupa os dados em `resultado_df` com anos de estudo, salários observados e estimados ordenados e arredondados, prepara `df_plot` e cria `fig_atividade3`, que combina pontos de dispersão azuis com a reta estimada vermelha. O layout usa título, rótulos de eixo, o tema `plotly_white`, hover ajustado e legenda horizontal acima do gráfico, entregando uma visualização clara da relação entre educação e salário.
 :::
 
 
@@ -592,5 +602,9 @@ print(f"**Coeficiente de determinacao (R2):** {r2:.4f}")
 :::
 
 ::: {.closing-card}
-As tres atividades demonstram a coleta de dados em fontes externas, o tratamento por meio de `pandas` e a visualizacao interativa com Plotly e Folium. O material esta pronto para ser apresentado como blog do curso de Sistemas de Informacao e pode ser expandido com novas rotinas conforme as proximas etapas da disciplina.
+A primeira atividade mostra como consultar a série PTAX do dólar diretamente da API do Banco Central, tratar as datas e valores com pandas e gerar um gráfico interativo em Plotly exibindo a variação diária do câmbio. Ela enfatiza o uso de séries temporais reais e a limpeza de dados.
+
+A segunda atividade apresenta a integração com a API Olho Vivo da SPTrans, obtendo linhas, paradas e posições de veículos em tempo real. Os dados são organizados e exibidos em um mapa interativo no Folium, demonstrando visualização geográfica aplicada.
+
+A terceira atividade aplica regressão linear para relacionar anos de estudo e salário, usando numpy e pandas para o cálculo e Plotly para criar um gráfico que combina os pontos observados com a reta estimada. As três juntas mostram coleta de dados, tratamento e visualização clara e objetiva.
 :::
